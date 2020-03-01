@@ -1,0 +1,2473 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <time.h>
+#include <math.h>
+
+unsigned int g_seed = 2548;
+
+// Compute a pseudorandom integer.
+// Output value in range [0, 32767]
+int fast_rand(void) {
+    g_seed = (214013*g_seed+2531011);
+    return (g_seed>>16)&0x7FFF;
+}
+
+
+double getUnixTime(void)
+{
+    struct timespec tv;
+
+    if(clock_gettime(CLOCK_REALTIME, &tv) != 0) return 0;
+
+    return (tv.tv_sec + (tv.tv_nsec / 1000000000.0));
+}
+
+enum BUILD_ACTION_T
+{
+  BUILD_ACTION_NONE,
+  BUILD_ACTION_BUILD_SCV,
+  BUILD_ACTION_BUILD_SHEEP_FARM,
+  BUILD_ACTION_BUILD_SHEEP_FARM_AND_SHEEP,
+  BUILD_ACTION_BUILD_SHEEP,
+  BUILD_ACTION_BUILD_COW_FARM,
+  BUILD_ACTION_BUILD_COW_FARM_AND_COW,
+  BUILD_ACTION_BUILD_COW,
+  BUILD_ACTION_BUILD_CONVERTER,
+  BUILD_ACTION_BUILD_FRUIT_FARM,
+  BUILD_ACTION_BUILD_REFINERY,
+  BUILD_ACTION_BUILD_CHEMICAL_PLANT,
+  BUILD_ACTION_BUILD_CONSTRUCTION_YARD,
+  BUILD_ACTION_BUILD_TECH_LAB,
+  BUILD_ACTION_BUILD_ARMORY,
+  BUILD_ACTION_UPGRADE_REFINERY,
+  BUILD_ACTION_UPGRADE_SHEEP_FARM,
+  BUILD_ACTION_UPGRADE_CHEMICAL_PLANT,
+  BUILD_ACTION_UPGRADE_ADVANCED_BUILD,
+  BUILD_ACTION_UPGRADE_IMPROVED_FARMING,
+  BUILD_ACTION_UPGRADE_LEVEL_2_WEAPONS,
+  BUILD_ACTION_UPGRADE_LEVEL_3_WEAPONS,
+  BUILD_ACTION_SET_CONVERTER_NONE,
+  BUILD_ACTION_SET_CONVERTER_GAS,
+  BUILD_ACTION_SET_CONVERTER_MINERALS,
+  BUILD_ACTION_BUILD_REAPER,
+  BUILD_ACTION_BUILD_SHOCK_TROOPER,
+  BUILD_ACTION_BUILD_MARINE,
+  BUILD_ACTION_BUILD_VETERAN_MARINE,
+  BUILD_ACTION_BUILD_ELITE_MARINE,
+  BUILD_ACTION_UPGRADE_GENERATOR,
+  BUILD_ACTION_SHOCK_TROOPER_BOLT,
+  BUILD_ACTION_AUTO_BUILD_REAPER,
+  BUILD_ACTION_AUTO_BUILD_SHOCK_TROOPER,
+  BUILD_ACTION_AUTO_BUILD_MARINE,
+  BUILD_ACTION_AUTO_BUILD_VETERAN_MARINE,
+  BUILD_ACTION_AUTO_BUILD_ELITE_MARINE,
+  BUILD_ACTION_AUTO_BUILD_BARRACKS_OFF,
+  BUILD_ACTION_AUTO_UPGRADE_GENERATOR_ON,
+  BUILD_ACTION_AUTO_UPGRADE_GENERATOR_OFF,
+  BUILD_ACTION_UPGRADE_OVERCHARGE,
+  BUILD_ACTION_UPGRADE_ENERGY_CONSERVATION_1,
+  BUILD_ACTION_UPGRADE_ENERGY_CONSERVATION_2,
+  BUILD_ACTION_UPGRADE_ENERGY_CONSERVATION_3,
+  BUILD_ACTION_UPGRADE_SHATTERING_LASER,
+  BUILD_ACTION_UPGRADE_DEFLECTIVE_SHATTER,
+  BUILD_ACTION_UPGRADE_PENETRATING_LASER,
+  BUILD_ACTION_UPGRADE_ELITE_SCOPE,
+  BUILD_ACTION_CHARGE_TECH_LAB,
+  BUILD_ACTION_AUTO_CHARGE_TECH_LAB_ON,
+  BUILD_ACTION_AUTO_CHARGE_TECH_LAB_OFF,
+  BUILD_ACTION_BUILD_ITALIS,
+  BUILD_ACTION_ION_CANNON,
+  BUILD_ACTION_END_BUILD,
+};
+
+static const char *build_action_strings[] = 
+{
+  "None",
+  "Build SCV",
+  "Build Sheep Farm",
+  "Build Sheep Farm And Sheep",
+  "Build Sheep",
+  "Build Cow Farm",
+  "Build Cow Farm and Cow",
+  "Build Cow",
+  "Build Converter",
+  "Build Fruit Farm",
+  "Build Refinery",
+  "Build Chemical Plant",
+  "Build Construction Yard",
+  "Build Tech Lab",
+  "Build Armory",
+  "Upgrade Refinery",
+  "Upgrade Sheep Farm",
+  "Research Chemical Plant",
+  "Research Advanced Build",
+  "Research Improved Farming",
+  "Research Tier 2 Equipment",
+  "Research Tier 3 Equipment",
+  "Set Converter to None",
+  "Set Converter to Gas",
+  "Set Converter to Minerals",
+  "Build Reaper",
+  "Build Shock Trooper",
+  "Build Marine",
+  "Build Veteran Marine",
+  "Build Elite Marine",
+  "Upgrade Generator",
+  "Fire Shock Trooper Bolt",
+  "Auto Build Reaper",
+  "Auto Build Shock Trooper",
+  "Auto Build Marine",
+  "Auto Build Veteran Marine",
+  "Auto Build Elite Marine",
+  "Auto Build Barracks Off",
+  "Generator Auto Upgrade On",
+  "Generator Auto Upgrade Off",
+  "Research Overcharge",
+  "Research Energy Conservation 1",
+  "Research Energy Conservation 2",
+  "Research Energy Conservation 3",
+  "Research Shattering Laser",
+  "Research Deflective Shatter",
+  "Research Penetrating Laser",
+  "Research Elite Scope",
+  "Charge Tech Lab",
+  "Tech Lab Auto Charge On",
+  "Tech Lab Auto Charge Off",
+  "Build Italis",
+  "Use Ion Cannon",
+  "END_BUILD"
+};
+
+void print_build_order(enum BUILD_ACTION_T * build_order)
+{
+  printf("\nBUILD ORDER:\n");
+  
+  int step_num = 0;
+  int same_order_count = 1;
+  enum BUILD_ACTION_T last_action = BUILD_ACTION_NONE;
+  while (last_action != BUILD_ACTION_END_BUILD)
+  {
+    if (*build_order == last_action)
+    {
+      same_order_count++;
+    }
+    else if (last_action != BUILD_ACTION_NONE)
+    {
+      printf("%3d: %s (%dx)\n", step_num, build_action_strings[last_action], same_order_count);
+      step_num++;
+      same_order_count = 1;
+    }
+    last_action = *build_order;
+    build_order++;
+  }
+}
+
+enum STRUCTURE_STATE_T
+{
+  STRUCTURE_STATE_BUILDING,
+  STRUCTURE_STATE_NORMAL,
+  STRUCTURE_STATE_WORKING,
+  STRUCTURE_STATE_CONVERT_TO_GAS,
+  STRUCTURE_STATE_CONVERT_TO_MINERALS,
+  STRUCTURE_STATE_CONVERTER_OFF,
+};
+
+enum STRUCTURE_TYPE_T
+{
+  STRUCTURE_TYPE_COMMAND_CENTER,
+  STRUCTURE_TYPE_REFINERY,
+  STRUCTURE_TYPE_CHEMICAL_PLANT,
+  STRUCTURE_TYPE_FRUIT_FARM,
+  STRUCTURE_TYPE_SHEEP_FARM,
+  STRUCTURE_TYPE_COW_FARM,
+  STRUCTURE_TYPE_COW,
+  STRUCTURE_TYPE_SHEEP,
+  STRUCTURE_TYPE_CONSTRUCTION_YARD,
+  STRUCTURE_TYPE_TECH_LAB,
+  STRUCTURE_TYPE_ARMORY,
+  STRUCTURE_TYPE_CONVERTER,
+  STRUCTURE_TYPE_GENERATOR,
+  STRUCTURE_TYPE_BARRACKS,
+  STRUCTURE_TYPE_NUM_STRUCTURE_TYPES,
+};
+
+static const char *structure_type_strings[] = 
+{
+  "Command Center",
+  "Refinery",
+  "Chemical Plant",
+  "Fruit Farm",
+  "Sheep Farm",
+  "Cow Farm",
+  "Cow",
+  "Sheep",
+  "Construction Yard",
+  "Tech Lab",
+  "Armory",
+  "Converter",
+  "Generator",
+  "Barracks"
+};
+
+enum WORLD_UPGRADE_T
+{
+  WORLD_UPGRADE_ANY_TECH_STRUCTURE,
+  WORLD_UPGRADE_CONSTRUCTION_YARD,
+  WORLD_UPGRADE_TECH_LAB,
+  WORLD_UPGRADE_ARMORY,
+  WORLD_UPGRADE_ADVANCED_BUILD,
+  WORLD_UPGRADE_CHEMICAL_PLANT,
+  WORLD_UPGRADE_LEVEL_2_WEAPONS,
+  WORLD_UPGRADE_LEVEL_3_WEAPONS,
+  WORLD_UPGRADE_IMPROVED_FARMING,
+  WORLD_UPGRADE_OVERCHARGE,
+  WORLD_UPGRADE_ENERGY_CONSERVATION_1,
+  WORLD_UPGRADE_ENERGY_CONSERVATION_2,
+  WORLD_UPGRADE_ENERGY_CONSERVATION_3,
+  WORLD_UPGRADE_SHATTERING_LASER,
+  WORLD_UPGRADE_DEFLECTIVE_SHATTER,
+  WORLD_UPGRADE_PENETRATING_LASER,
+  WORLD_UPGRADE_ELITE_SCOPE,
+  WORLD_UPGRADE_NUM
+};
+
+static const char *world_upgrade_strings[] = 
+{
+  "Any Tech Structure",
+  "Construction Yard",
+  "Tech Lab",
+  "Armory",
+  "Advanced Build",
+  "Chemical Plant",
+  "Tier 2 Equipment",
+  "Tier 3 Equipment",
+  "Improved Farming",
+  "Overcharge",
+  "Energy Conservation 1",
+  "Energy Conservation 2",
+  "Energy Conservation 3",
+  "Shattering Laser",
+  "Deflective Shatter",
+  "Penetrating Laser",
+  "Elite Scope",
+  "Invalid Upgrade"
+};
+
+
+enum STRUCTURE_UPGRADE_T
+{
+  STRUCTURE_UPGRADE_LEVEL,
+  STRUCTURE_UPGRADE_SPENT,
+  STRUCTURE_UPGRADE_NUM
+};
+
+struct STRUCTURE_T
+{
+  long time_us;
+  enum STRUCTURE_STATE_T state;
+  struct EVENT_T *first_event;
+  enum STRUCTURE_TYPE_T type;
+  struct STRUCTURE_T * next;
+  unsigned char upgrades[STRUCTURE_UPGRADE_NUM];
+};
+
+enum EVENT_TYPE_T
+{
+  EVENT_TYPE_MINERAL_INCOME,
+  EVENT_TYPE_GAS_INCOME,
+  EVENT_TYPE_ENERGY_INCOME,
+  EVENT_TYPE_UPGRADE_COMPLETE,
+  EVENT_TYPE_BUILD_COMPLETE,
+  EVENT_TYPE_UNIT_BUILD_COMPLETE,
+  EVENT_TYPE_ABILITY_COOLDOWN,
+  EVENT_TYPE_AUTO_BUILD_POLL,
+};
+
+static const char *event_type_strings[] = 
+{
+  "Mineral Income",
+  "Gas Income",
+  "Energy Income",
+  "Upgrade Complete",
+  "Build Complete",
+  "Unit Build Complete",
+  "Ability Cooldown",
+  "Auto Build Poll"
+};
+
+struct EVENT_T
+{
+  int period_us;
+  long time_us;
+  enum EVENT_TYPE_T event_type;
+  struct STRUCTURE_T * structure;
+  struct EVENT_T * next_event_in_time;
+  struct EVENT_T * next_event_in_structure;
+  enum BUILD_ACTION_T action;
+};
+
+struct GAMESTATE_T
+{
+  int gas;
+  int minerals;
+  int free_scv_count;
+  int free_animal_slot_count;
+  long time_us;
+  
+  int large_spots_left;
+  int small_spots_left;
+  int refinery_spots_left;
+  
+  int italis_count;
+  int ion_cannon_count;
+  int reaper_count;
+  int shock_trooper_count;
+  int shock_troopers_off_cooldown;
+  int shock_trooper_bolts_fired;
+  int marine_count;
+  int veteran_marine_count;
+  int elite_marine_count;
+  
+  int generator_charge;
+  int tech_lab_charges;
+  
+  unsigned char upgrades[WORLD_UPGRADE_NUM];
+  
+  struct EVENT_T * next_event;
+  struct STRUCTURE_T * first_structure;
+};
+
+
+
+
+void schedule_event(struct GAMESTATE_T * state, struct EVENT_T * event)
+{
+  event->time_us = event->period_us + state->time_us;
+  struct EVENT_T * considering_event = state->next_event;
+  
+  if (!considering_event || considering_event->time_us > event->time_us)
+  {
+    event->next_event_in_time = considering_event;
+    state->next_event = event;
+  }
+  else
+  {
+    while(considering_event)
+    {
+      if (!considering_event->next_event_in_time || considering_event->next_event_in_time->time_us > event->time_us)
+      {
+        event->next_event_in_time = considering_event->next_event_in_time;
+        considering_event->next_event_in_time = event;
+        break;
+      }
+      considering_event = considering_event->next_event_in_time;
+    }
+  }
+}
+
+void unschedule_event(struct GAMESTATE_T * state, struct EVENT_T * event)
+{
+  struct EVENT_T * considering_event = state->next_event;
+  if (considering_event == event)
+  {
+    state->next_event = considering_event->next_event_in_time;
+  }
+  else
+  {
+    while (considering_event)
+    {
+        if (considering_event->next_event_in_time == event)
+        {
+          considering_event->next_event_in_time = considering_event->next_event_in_time->next_event_in_time;
+          break;
+        }
+        considering_event = considering_event->next_event_in_time;
+    }
+  }
+  
+  event->next_event_in_time = NULL;
+
+}
+
+struct EVENT_T * create_event(struct GAMESTATE_T * state, int period_us, enum EVENT_TYPE_T event_type,  struct STRUCTURE_T * structure, enum BUILD_ACTION_T action)
+{
+  
+  struct EVENT_T * new_event = malloc(sizeof(struct EVENT_T));
+  new_event->period_us = period_us;
+  new_event->event_type = event_type;
+  new_event->structure = structure;
+  new_event->action = action;
+  
+  if (structure)
+  {
+    new_event->next_event_in_structure = structure->first_event;
+    structure->first_event = new_event;
+  }
+  
+  schedule_event(state, new_event);
+  
+  return new_event;
+}
+
+void delete_event(struct GAMESTATE_T * state, struct EVENT_T * event_to_delete)
+{
+  unschedule_event(state, event_to_delete);
+  
+  struct EVENT_T * considering_event;
+  if (event_to_delete->structure)
+  {
+    considering_event = event_to_delete->structure->first_event;
+    if (considering_event == event_to_delete)
+    {
+      event_to_delete->structure->first_event = considering_event->next_event_in_structure;
+    }
+    else
+    {
+      while (considering_event)
+      {
+          if (considering_event->next_event_in_structure == event_to_delete)
+          {
+            considering_event->next_event_in_structure = considering_event->next_event_in_structure->next_event_in_structure;
+            break;
+          }
+          considering_event = considering_event->next_event_in_structure;
+      }
+    }
+  }
+  free(event_to_delete);
+}
+
+void print_event(struct EVENT_T * event)
+{
+  int secs = event->time_us / 1000000;
+  int mins = secs / 60;
+  secs = secs % 60;
+  printf("    Event: Time  %d:%02d, Type %s\n", mins, secs, event_type_strings[event->event_type]);
+}
+
+
+struct STRUCTURE_T * create_structure(struct GAMESTATE_T * state, enum STRUCTURE_TYPE_T type, enum STRUCTURE_STATE_T struct_state)
+{
+  struct STRUCTURE_T * new_structure = malloc(sizeof(struct STRUCTURE_T));
+  new_structure->time_us = state->time_us;
+  new_structure->type = type;
+  new_structure->state = struct_state;
+  new_structure->next = state->first_structure;
+  new_structure->first_event = NULL;
+  state->first_structure = new_structure;
+  
+  int i;
+  for (i = 0; i < STRUCTURE_UPGRADE_NUM; i++)
+  {
+    new_structure->upgrades[i] = 0;
+  }
+  
+  return new_structure;
+}
+
+
+void print_structure(struct STRUCTURE_T * structure)
+{
+  int secs = structure->time_us / 1000000ULL;
+  int mins = secs / 60;
+  secs = secs % 60;
+  printf("(%02d:%02d) %s", mins, secs, structure_type_strings[structure->type]);
+  switch(structure->state)
+  {
+    case STRUCTURE_STATE_BUILDING:
+      printf(" (Building)");
+      break;
+    case STRUCTURE_STATE_CONVERT_TO_GAS:
+      printf(" (Gas)"); 
+      break;
+    case STRUCTURE_STATE_CONVERT_TO_MINERALS:
+      printf(" (Minerals)"); 
+      break;
+    case STRUCTURE_STATE_CONVERTER_OFF:
+      printf(" (Off)"); 
+      break;
+    default:
+      break;
+  }
+  if (structure->upgrades[STRUCTURE_UPGRADE_LEVEL])
+  {
+    printf(" (Level=%d)", structure->upgrades[STRUCTURE_UPGRADE_LEVEL]);
+  }  
+  if (structure->upgrades[STRUCTURE_UPGRADE_SPENT])
+  {
+    printf(" (Spent)");
+  }
+  printf("\n");
+}
+
+void print_event_stack(struct EVENT_T * next_event)
+{
+  while(next_event)
+  {
+    print_event(next_event);
+    next_event = next_event->next_event_in_time;
+  }
+}
+
+struct STRUCTURE_T * find_structure(struct GAMESTATE_T * state, enum STRUCTURE_TYPE_T type)
+{
+  struct STRUCTURE_T * next_struct = state->first_structure;
+  while (next_struct)
+  {
+    if (next_struct->type == type)
+      return next_struct;
+    next_struct = next_struct->next;
+  }
+  return NULL;
+}
+
+struct STRUCTURE_T * find_structure_with_state(struct GAMESTATE_T * state, enum STRUCTURE_TYPE_T type, enum STRUCTURE_STATE_T struct_state)
+{
+  struct STRUCTURE_T * next_struct = state->first_structure;
+  while (next_struct)
+  {
+    if (next_struct->type == type && next_struct->state == struct_state)
+      return next_struct;
+    next_struct = next_struct->next;
+  }
+  return NULL;
+}
+
+int try_process_action(struct GAMESTATE_T * state, enum BUILD_ACTION_T build_action)
+{
+  struct STRUCTURE_T * structure = NULL;
+  struct EVENT_T * barracks_event;
+  unsigned char completed = 0;
+  int has_struct;
+  int is_building;
+  switch (build_action)
+  {
+    case BUILD_ACTION_NONE:
+      completed = 1;
+      break;
+    case BUILD_ACTION_BUILD_SCV:
+      if (state->gas > 10)
+      {
+        state->free_scv_count++;
+        state->gas -= 10;
+        completed = 1;
+      }
+      break;
+    case BUILD_ACTION_BUILD_REFINERY:
+      if (state->refinery_spots_left == 0)
+      {
+        // Deadlock, skip.
+        completed = 1;
+      }
+      else if (state->gas >= 20 && state->free_scv_count > 0)
+      {
+        state->refinery_spots_left--;
+        state->gas -= 20;
+        state->free_scv_count--;
+        struct STRUCTURE_T * ref = create_structure(state, STRUCTURE_TYPE_REFINERY, STRUCTURE_STATE_BUILDING);
+        create_event(state, 20000000ULL, EVENT_TYPE_BUILD_COMPLETE, ref, build_action);
+        completed = 1;
+      }
+      break;
+    case BUILD_ACTION_UPGRADE_REFINERY:
+      structure = state->first_structure;
+      while (structure)
+      {
+        if (structure->type == STRUCTURE_TYPE_REFINERY && structure->upgrades[STRUCTURE_UPGRADE_LEVEL] == 0)
+          break;
+        structure = structure->next;
+      }
+      if (!structure)
+      {
+        // Deadlock, skip.
+        completed = 1;
+      }
+      else if (structure->state == STRUCTURE_STATE_NORMAL && state->minerals >= 80)
+      {
+        state->minerals -= 80;
+        structure->state = STRUCTURE_STATE_WORKING;
+        create_event(state, 45000000ULL, EVENT_TYPE_UPGRADE_COMPLETE, structure, build_action);
+        completed = 1;
+      }
+      break;
+    case BUILD_ACTION_BUILD_FRUIT_FARM:
+      if (state->large_spots_left < 1 || state->small_spots_left < 9)
+      {
+        // Deadlock, skip.
+        completed = 1;
+      }
+      else if (state->gas >= 30 && state->free_scv_count > 0)
+      {
+        state->large_spots_left -= 1;
+        state->small_spots_left -= 9;
+        state->gas -= 30;
+        state->free_scv_count--;
+        struct STRUCTURE_T * ref = create_structure(state, STRUCTURE_TYPE_FRUIT_FARM, STRUCTURE_STATE_BUILDING);
+        create_event(state, 20000000ULL, EVENT_TYPE_BUILD_COMPLETE, ref, build_action);
+        completed = 1;
+      }
+      break;
+    case BUILD_ACTION_BUILD_CONSTRUCTION_YARD:
+      if (state->upgrades[WORLD_UPGRADE_CONSTRUCTION_YARD])
+      {
+        // Deadlock, skip.
+        completed = 1;
+      }
+      else if (state->gas >= 100 && state->minerals >= 50 && state->free_scv_count > 0)
+      {
+        state->gas -= 100;
+        state->minerals -= 50;
+        state->free_scv_count--;
+        state->upgrades[WORLD_UPGRADE_CONSTRUCTION_YARD] = 1;
+        if (state->upgrades[WORLD_UPGRADE_ANY_TECH_STRUCTURE] == 0)
+          state->upgrades[WORLD_UPGRADE_ANY_TECH_STRUCTURE] = 1;
+        struct STRUCTURE_T * ref = create_structure(state, STRUCTURE_TYPE_CONSTRUCTION_YARD, STRUCTURE_STATE_BUILDING);
+        create_event(state, 30000000ULL, EVENT_TYPE_BUILD_COMPLETE, ref, build_action);
+        completed = 1;
+      }
+      break;
+    case BUILD_ACTION_BUILD_ARMORY:
+      if (state->upgrades[WORLD_UPGRADE_ARMORY])
+      {
+        // Deadlock, skip.
+        completed = 1;
+      }
+      else if (state->gas >= 100 && state->minerals >= 50 && state->free_scv_count > 0)
+      {
+        state->gas -= 100;
+        state->minerals -= 50;
+        state->free_scv_count--;
+        state->upgrades[WORLD_UPGRADE_ARMORY] = 1;
+        if (state->upgrades[WORLD_UPGRADE_ANY_TECH_STRUCTURE] == 0)
+          state->upgrades[WORLD_UPGRADE_ANY_TECH_STRUCTURE] = 1;
+        struct STRUCTURE_T * ref = create_structure(state, STRUCTURE_TYPE_ARMORY, STRUCTURE_STATE_BUILDING);
+        create_event(state, 30000000ULL, EVENT_TYPE_BUILD_COMPLETE, ref, build_action);
+        completed = 1;
+      }
+      break;
+    case BUILD_ACTION_BUILD_TECH_LAB:
+      if (state->upgrades[WORLD_UPGRADE_TECH_LAB])
+      {
+        // Deadlock, skip.
+        completed = 1;
+      }
+      else if (state->gas >= 100 && state->minerals >= 50 && state->free_scv_count > 0)
+      {
+        state->gas -= 100;
+        state->minerals -= 50;
+        state->free_scv_count--;
+        state->upgrades[WORLD_UPGRADE_TECH_LAB] = 1;
+        if (state->upgrades[WORLD_UPGRADE_ANY_TECH_STRUCTURE] == 0)
+          state->upgrades[WORLD_UPGRADE_ANY_TECH_STRUCTURE] = 1;
+        struct STRUCTURE_T * ref = create_structure(state, STRUCTURE_TYPE_TECH_LAB, STRUCTURE_STATE_BUILDING);
+        create_event(state, 30000000ULL, EVENT_TYPE_BUILD_COMPLETE, ref, build_action);
+        completed = 1;
+      }
+      break;
+    case BUILD_ACTION_BUILD_COW_FARM:
+    case BUILD_ACTION_BUILD_COW_FARM_AND_COW:
+      if (state->upgrades[WORLD_UPGRADE_CONSTRUCTION_YARD] == 0)
+      {
+        // Deadlock, skip.
+        completed = 1;
+      }
+      else if (state->upgrades[WORLD_UPGRADE_CONSTRUCTION_YARD] == 2 && state->gas >= 60 &&  state->minerals >= 30 && state->free_scv_count > 0)
+      {
+        state->small_spots_left -= 1;
+        state->gas -= 60;
+        state->minerals -= 30;
+        state->free_scv_count--;
+        struct STRUCTURE_T * ref = create_structure(state, STRUCTURE_TYPE_COW_FARM, STRUCTURE_STATE_BUILDING);
+        create_event(state, 30000000ULL, EVENT_TYPE_BUILD_COMPLETE, ref, build_action);
+        completed = 1;
+      }
+      break;
+    case BUILD_ACTION_BUILD_COW:
+      // Check for Cow Farm
+      structure = state->first_structure;
+      has_struct = 0;
+      is_building = 1;
+      while (structure)
+      {
+        if (structure->type == STRUCTURE_TYPE_COW_FARM && structure->upgrades[STRUCTURE_UPGRADE_SPENT] == 0)
+        {
+          has_struct = 1;
+          if (structure->state != STRUCTURE_STATE_BUILDING)
+            is_building = 0;
+        }
+        if (has_struct && !is_building)
+          break;
+        structure = structure->next;
+      }
+      if (!has_struct)
+      {
+        // Deadlock, skip.
+        completed = 1;
+        break;
+      }
+      if (is_building)
+        break;
+      if (state->minerals >= 15)
+      {
+        state->minerals -= 15;
+        structure->upgrades[STRUCTURE_UPGRADE_SPENT] = 1;
+        struct STRUCTURE_T * ref = create_structure(state, STRUCTURE_TYPE_COW, STRUCTURE_STATE_BUILDING);
+        create_event(state, 5000000ULL, EVENT_TYPE_BUILD_COMPLETE, ref, build_action);
+        completed = 1;
+      }
+      break;
+    case BUILD_ACTION_BUILD_SHEEP_FARM:
+    case BUILD_ACTION_BUILD_SHEEP_FARM_AND_SHEEP:
+      if (state->small_spots_left == 0)
+      {
+        // Deadlock, skip.
+        completed = 1;
+      }
+      else if (state->gas >= 40 && state->free_scv_count > 0)
+      {
+        state->small_spots_left -= 1;
+        state->gas -= 40;
+        state->free_scv_count--;
+        struct STRUCTURE_T * ref = create_structure(state, STRUCTURE_TYPE_SHEEP_FARM, STRUCTURE_STATE_BUILDING);
+        create_event(state, 20000000ULL, EVENT_TYPE_BUILD_COMPLETE, ref, build_action);
+        completed = 1;
+      }
+      break;
+    case BUILD_ACTION_BUILD_SHEEP:
+      // Check for Sheep Farm
+      structure = state->first_structure;
+      has_struct = 0;
+      is_building = 1;
+      while (structure)
+      {
+        if (structure->type == STRUCTURE_TYPE_SHEEP_FARM && structure->upgrades[STRUCTURE_UPGRADE_SPENT] == 0)
+        {
+          has_struct = 1;
+          if (structure->state != STRUCTURE_STATE_BUILDING)
+            is_building = 0;
+        }
+        if (has_struct && !is_building)
+          break;
+        structure = structure->next;
+      }
+      if (!has_struct)
+      {
+        // Deadlock, skip.
+        completed = 1;
+        break;
+      }
+      if (is_building)
+        break;
+      if (state->minerals >= 5)
+      {
+        state->minerals -= 5;
+        structure->upgrades[STRUCTURE_UPGRADE_SPENT] = 1;
+        struct STRUCTURE_T * ref = create_structure(state, STRUCTURE_TYPE_SHEEP, STRUCTURE_STATE_BUILDING);
+        create_event(state, 5000000ULL, EVENT_TYPE_BUILD_COMPLETE, ref, build_action);
+        completed = 1;
+      }
+      break;
+    case BUILD_ACTION_UPGRADE_SHEEP_FARM:
+      // Check for any tech structure
+      if (!state->upgrades[WORLD_UPGRADE_ANY_TECH_STRUCTURE])
+      {
+        // Deadlock, skip.
+        completed = 1;
+        break;
+      }
+      
+      // We have a finished tech structure, find a sheep farm
+      has_struct = 0;
+      is_building = 1;
+      while (structure)
+      {
+        if (structure->type == STRUCTURE_TYPE_SHEEP_FARM && structure->upgrades[STRUCTURE_UPGRADE_LEVEL] == 0)
+        {
+          has_struct = 1;
+          if (structure->state == STRUCTURE_STATE_NORMAL)
+            is_building = 0;
+        }
+        if (has_struct && !is_building)
+          break;
+        structure = structure->next;
+      }
+      if (!has_struct)
+      {
+        // Deadlock, skip.
+        completed = 1;
+        break;
+      }
+      if (is_building)
+        break;
+        
+      // All clear, purchase upgrade
+      if (state->upgrades[WORLD_UPGRADE_ANY_TECH_STRUCTURE] == 2 && state->minerals >= 20 &&  state->gas >= 20)
+      {
+        state->gas -= 20;
+        state->minerals -= 20;
+        structure->state = STRUCTURE_STATE_WORKING;
+        create_event(state, 0000000ULL, EVENT_TYPE_UPGRADE_COMPLETE, structure, build_action);
+        completed = 1;
+      }
+      break;
+    case BUILD_ACTION_UPGRADE_ADVANCED_BUILD:
+      structure = find_structure(state, STRUCTURE_TYPE_CONSTRUCTION_YARD);
+      if (!structure || state->upgrades[WORLD_UPGRADE_ADVANCED_BUILD] != 0)
+      {
+        // Deadlock, skip.
+        completed = 1;
+      }
+      else if (structure->state == STRUCTURE_STATE_NORMAL && state->gas >= 100)
+      {
+        state->gas -= 100;
+        structure->state = STRUCTURE_STATE_WORKING;
+        state->upgrades[WORLD_UPGRADE_ADVANCED_BUILD] = 1;
+        create_event(state, 30000000ULL, EVENT_TYPE_UPGRADE_COMPLETE, structure, build_action);
+        completed = 1;
+      }
+      break;
+    case BUILD_ACTION_UPGRADE_IMPROVED_FARMING:
+      structure = find_structure(state, STRUCTURE_TYPE_CONSTRUCTION_YARD);
+      if (!structure || state->upgrades[WORLD_UPGRADE_IMPROVED_FARMING] != 0)
+      {
+        // Deadlock, skip.
+        completed = 1;
+      }
+      else if (structure->state == STRUCTURE_STATE_NORMAL && state->gas >= 400)
+      {
+        state->gas -= 400;
+        structure->state = STRUCTURE_STATE_WORKING;
+        state->upgrades[WORLD_UPGRADE_IMPROVED_FARMING] = 1;
+        create_event(state, 30000000ULL, EVENT_TYPE_UPGRADE_COMPLETE, structure, build_action);
+        completed = 1;
+      }
+      break;
+    case BUILD_ACTION_UPGRADE_CHEMICAL_PLANT:
+      structure = find_structure(state, STRUCTURE_TYPE_CONSTRUCTION_YARD);
+      if (!structure || state->upgrades[WORLD_UPGRADE_CHEMICAL_PLANT] != 0 || state->upgrades[WORLD_UPGRADE_ADVANCED_BUILD] == 0)
+      {
+        // Deadlock, skip.
+        completed = 1;
+      }
+      else if (structure->state == STRUCTURE_STATE_NORMAL && state->gas >= 600)
+      {
+        state->gas -= 600;
+        structure->state = STRUCTURE_STATE_WORKING;
+        state->upgrades[WORLD_UPGRADE_CHEMICAL_PLANT] = 1;
+        create_event(state, 30000000ULL, EVENT_TYPE_UPGRADE_COMPLETE, structure, build_action);
+        completed = 1;
+      }
+      break;
+    case BUILD_ACTION_UPGRADE_LEVEL_2_WEAPONS:
+      structure = find_structure(state, STRUCTURE_TYPE_TECH_LAB);
+      if (!structure || state->upgrades[WORLD_UPGRADE_LEVEL_2_WEAPONS] != 0)
+      {
+        // Deadlock, skip.
+        completed = 1;
+      }
+      else if (structure->state == STRUCTURE_STATE_NORMAL && state->gas >= 250)
+      {
+        state->gas -= 250;
+        structure->state = STRUCTURE_STATE_WORKING;
+        state->upgrades[WORLD_UPGRADE_LEVEL_2_WEAPONS] = 1;
+        create_event(state, 30000000ULL, EVENT_TYPE_UPGRADE_COMPLETE, structure, build_action);
+        completed = 1;
+      }
+      break;
+    case BUILD_ACTION_UPGRADE_LEVEL_3_WEAPONS:
+      structure = find_structure(state, STRUCTURE_TYPE_TECH_LAB);
+      if (!structure || state->upgrades[WORLD_UPGRADE_LEVEL_2_WEAPONS] == 0 || state->upgrades[WORLD_UPGRADE_LEVEL_3_WEAPONS] != 0)
+      {
+        // Deadlock, skip.
+        completed = 1;
+      }
+      else if (structure->state == STRUCTURE_STATE_NORMAL && state->upgrades[WORLD_UPGRADE_LEVEL_2_WEAPONS] == 2 && state->gas >= 600)
+      {
+        state->gas -= 600;
+        structure->state = STRUCTURE_STATE_WORKING;
+        state->upgrades[WORLD_UPGRADE_LEVEL_3_WEAPONS] = 1;
+        create_event(state, 30000000ULL, EVENT_TYPE_UPGRADE_COMPLETE, structure, build_action);
+        completed = 1;
+      }
+      break;
+    case BUILD_ACTION_BUILD_CONVERTER:
+      if (state->upgrades[WORLD_UPGRADE_ADVANCED_BUILD] == 0 || state->small_spots_left == 0 )
+      {
+        completed = 1;
+      }
+      else if (state->upgrades[WORLD_UPGRADE_ADVANCED_BUILD] == 2 && state->minerals >= 100 && state->free_scv_count > 0)
+      {
+        state->small_spots_left -= 1;
+        state->minerals -= 100;
+        state->free_scv_count--;
+        struct STRUCTURE_T * ref = create_structure(state, STRUCTURE_TYPE_CONVERTER, STRUCTURE_STATE_BUILDING);
+        create_event(state, 20000000ULL, EVENT_TYPE_BUILD_COMPLETE, ref, build_action);
+        completed = 1;
+      }
+      break;
+    case BUILD_ACTION_SET_CONVERTER_GAS:
+      structure = find_structure_with_state(state, STRUCTURE_TYPE_CONVERTER, STRUCTURE_STATE_CONVERTER_OFF);
+      if (!structure)
+      {
+        structure = find_structure_with_state(state, STRUCTURE_TYPE_CONVERTER, STRUCTURE_STATE_CONVERT_TO_MINERALS);
+      }
+      if (structure)
+      {
+        structure->state = STRUCTURE_STATE_CONVERT_TO_GAS;
+        
+      }
+      completed = 1;
+      break;
+    case BUILD_ACTION_SET_CONVERTER_MINERALS:
+      structure = find_structure_with_state(state, STRUCTURE_TYPE_CONVERTER, STRUCTURE_STATE_CONVERTER_OFF);
+      if (!structure)
+      {
+        structure = find_structure_with_state(state, STRUCTURE_TYPE_CONVERTER, STRUCTURE_STATE_CONVERT_TO_GAS);
+      }
+      if (structure)
+      {
+        structure->state = STRUCTURE_STATE_CONVERT_TO_MINERALS;
+      }
+      completed = 1;
+      break;
+    case BUILD_ACTION_SET_CONVERTER_NONE:
+      structure = find_structure_with_state(state, STRUCTURE_TYPE_CONVERTER, STRUCTURE_STATE_CONVERT_TO_GAS);
+      if (!structure)
+      {
+        structure = find_structure_with_state(state, STRUCTURE_TYPE_CONVERTER, STRUCTURE_STATE_CONVERT_TO_MINERALS);
+      }
+      if (structure)
+      {
+        structure->state = STRUCTURE_STATE_CONVERTER_OFF;
+      }
+      completed = 1;
+      break;
+    case BUILD_ACTION_BUILD_CHEMICAL_PLANT:
+      if (state->upgrades[WORLD_UPGRADE_CHEMICAL_PLANT] == 0 && state->small_spots_left < 1)
+      {
+        completed = 1;
+      }
+      else if (state->upgrades[WORLD_UPGRADE_CHEMICAL_PLANT] == 2 && state->minerals >= 1000 && state->gas >= 200 && state->free_scv_count > 0)
+      {
+        state->small_spots_left -= 1;
+        state->minerals -= 1000;
+        state->gas -= 200;
+        state->free_scv_count--;
+        struct STRUCTURE_T * ref = create_structure(state, STRUCTURE_TYPE_CHEMICAL_PLANT, STRUCTURE_STATE_BUILDING);
+        create_event(state, 30000000ULL, EVENT_TYPE_BUILD_COMPLETE, ref, build_action);
+        completed = 1;
+      }
+      break;
+    case BUILD_ACTION_BUILD_REAPER:
+      structure = find_structure(state, STRUCTURE_TYPE_BARRACKS);
+      if (structure->state == STRUCTURE_STATE_NORMAL && state->minerals >= 20 && state->gas >= 3)
+      {
+        state->minerals -= 20;
+        state->gas -= 3;
+        structure->state = STRUCTURE_STATE_WORKING;
+        create_event(state, 2000000ULL, EVENT_TYPE_UNIT_BUILD_COMPLETE, structure, build_action);
+        completed = 1;
+      }
+      break;
+    case BUILD_ACTION_BUILD_SHOCK_TROOPER:
+      structure = find_structure(state, STRUCTURE_TYPE_BARRACKS);
+      if (structure->state == STRUCTURE_STATE_NORMAL  && state->minerals >= 15 && state->gas >= 25)
+      {
+        state->minerals -= 15;
+        state->gas -= 25;
+        structure->state = STRUCTURE_STATE_WORKING;
+        create_event(state, 2000000ULL, EVENT_TYPE_UNIT_BUILD_COMPLETE, structure, build_action);
+        completed = 1;
+      }
+      break;
+    case BUILD_ACTION_BUILD_MARINE:
+      structure = find_structure(state, STRUCTURE_TYPE_BARRACKS);
+      if (structure->state == STRUCTURE_STATE_NORMAL  && state->minerals >= 15 && state->gas >= 5)
+      {
+        state->minerals -= 15;
+        state->gas -= 5;
+        structure->state = STRUCTURE_STATE_WORKING;
+        create_event(state, 2000000ULL, EVENT_TYPE_UNIT_BUILD_COMPLETE, structure, build_action);
+        completed = 1;
+      }
+      break;
+    case BUILD_ACTION_BUILD_VETERAN_MARINE:
+      structure = find_structure(state, STRUCTURE_TYPE_BARRACKS);
+      if (state->upgrades[WORLD_UPGRADE_LEVEL_2_WEAPONS] == 0)
+      {
+        completed = 1;
+        break;
+      }
+      else if (structure->state == STRUCTURE_STATE_NORMAL && state->upgrades[WORLD_UPGRADE_LEVEL_2_WEAPONS] == 2 && state->minerals >= 50 && state->gas >= 10)
+      {
+        state->minerals -= 50;
+        state->gas -= 10;
+        structure->state = STRUCTURE_STATE_WORKING;
+        create_event(state, 2000000ULL, EVENT_TYPE_UNIT_BUILD_COMPLETE, structure, build_action);
+        completed = 1;
+      }
+      break;
+    case BUILD_ACTION_BUILD_ELITE_MARINE:
+      structure = find_structure(state, STRUCTURE_TYPE_BARRACKS);
+      if (state->upgrades[WORLD_UPGRADE_LEVEL_3_WEAPONS] == 0)
+      {
+        completed = 1;
+        break;
+      }
+      else if (structure->state == STRUCTURE_STATE_NORMAL && state->upgrades[WORLD_UPGRADE_LEVEL_3_WEAPONS] == 2 && state->minerals >= 100 && state->gas >= 20)
+      {
+        state->minerals -= 100;
+        state->gas -= 20;
+        structure->state = STRUCTURE_STATE_WORKING;
+        create_event(state, 2000000ULL, EVENT_TYPE_UNIT_BUILD_COMPLETE, structure, build_action);
+        completed = 1;
+      }
+      break;
+    case BUILD_ACTION_UPGRADE_GENERATOR:
+      structure = find_structure(state, STRUCTURE_TYPE_GENERATOR);
+      int cost = 32 + 2*structure->upgrades[STRUCTURE_UPGRADE_LEVEL];
+      if (structure->upgrades[STRUCTURE_UPGRADE_LEVEL] >= 50)
+        completed = 1;
+      else if (structure->state == STRUCTURE_STATE_NORMAL && state->minerals >= cost)
+      {
+        state->minerals -= cost;
+        structure->state = STRUCTURE_STATE_WORKING;
+        create_event(state, 5000000ULL, EVENT_TYPE_UPGRADE_COMPLETE, structure, build_action);
+        completed = 1;
+      }
+      break;
+    case BUILD_ACTION_SHOCK_TROOPER_BOLT:
+      if (state->shock_troopers_off_cooldown > 0 && state->generator_charge >= 50)
+      {
+        state->shock_troopers_off_cooldown -= 1;
+        state->generator_charge -= 50;
+        state->shock_trooper_bolts_fired += 1;
+        create_event(state, 30000000ULL, EVENT_TYPE_ABILITY_COOLDOWN, NULL, build_action);
+        completed = 1;
+      }
+      break;
+    case BUILD_ACTION_AUTO_BUILD_REAPER:
+    case BUILD_ACTION_AUTO_BUILD_SHOCK_TROOPER:
+    case BUILD_ACTION_AUTO_BUILD_MARINE:
+    case BUILD_ACTION_AUTO_BUILD_VETERAN_MARINE:
+    case BUILD_ACTION_AUTO_BUILD_ELITE_MARINE:
+      /* Get Barracks */
+      structure = find_structure(state, STRUCTURE_TYPE_BARRACKS);
+      /* Check for Auto Poll */
+      barracks_event = structure->first_event;
+      while (barracks_event)
+      {
+        if (barracks_event->event_type == EVENT_TYPE_AUTO_BUILD_POLL)
+        {
+          break;
+        }
+        barracks_event = barracks_event->next_event_in_time;
+      }
+      if (!barracks_event)
+      {
+        barracks_event = create_event(state, 1000000, EVENT_TYPE_AUTO_BUILD_POLL, structure, build_action);
+      }
+      barracks_event->action = build_action;
+      completed = 1;
+      break;
+    case BUILD_ACTION_AUTO_BUILD_BARRACKS_OFF:
+      /* Get Barracks */
+      structure = find_structure(state, STRUCTURE_TYPE_BARRACKS);
+      /* Check for Auto Poll */
+      barracks_event = structure->first_event;
+      while (barracks_event)
+      {
+        if (barracks_event->event_type == EVENT_TYPE_AUTO_BUILD_POLL)
+        {
+          break;
+        }
+        barracks_event = barracks_event->next_event_in_time;
+      }
+      if (barracks_event)
+      {
+        delete_event(state, barracks_event);
+      }
+      completed = 1;
+      break;
+    case BUILD_ACTION_AUTO_UPGRADE_GENERATOR_ON:
+      /* Get Generator */
+      structure = find_structure(state, STRUCTURE_TYPE_GENERATOR);
+      /* Check for Auto Poll */
+      barracks_event = structure->first_event;
+      while (barracks_event)
+      {
+        if (barracks_event->event_type == EVENT_TYPE_AUTO_BUILD_POLL)
+        {
+          break;
+        }
+        barracks_event = barracks_event->next_event_in_time;
+      }
+      if (!barracks_event)
+      {
+        barracks_event = create_event(state, 1000000, EVENT_TYPE_AUTO_BUILD_POLL, structure, build_action);
+      }
+      barracks_event->action = build_action;
+      completed = 1;
+      break;
+    case BUILD_ACTION_AUTO_UPGRADE_GENERATOR_OFF:
+      /* Get Generator */
+      structure = find_structure(state, STRUCTURE_TYPE_GENERATOR);
+      /* Check for Auto Poll */
+      barracks_event = structure->first_event;
+      while (barracks_event)
+      {
+        if (barracks_event->event_type == EVENT_TYPE_AUTO_BUILD_POLL)
+        {
+          break;
+        }
+        barracks_event = barracks_event->next_event_in_time;
+      }
+      if (barracks_event)
+      {
+        delete_event(state, barracks_event);
+      }
+      completed = 1;
+      break;
+    case BUILD_ACTION_UPGRADE_OVERCHARGE:
+      structure = find_structure(state, STRUCTURE_TYPE_ARMORY);
+      if (!structure || state->upgrades[WORLD_UPGRADE_OVERCHARGE] != 0)
+      {
+        // Deadlock, skip.
+        completed = 1;
+      }
+      else if (structure->state == STRUCTURE_STATE_NORMAL && state->gas >= 50)
+      {
+        state->gas -= 50;
+        structure->state = STRUCTURE_STATE_WORKING;
+        state->upgrades[WORLD_UPGRADE_OVERCHARGE] = 1;
+        create_event(state, 30000000ULL, EVENT_TYPE_UPGRADE_COMPLETE, structure, build_action);
+        completed = 1;
+      }
+      break;
+    case BUILD_ACTION_UPGRADE_ENERGY_CONSERVATION_1:
+      structure = find_structure(state, STRUCTURE_TYPE_ARMORY);
+      if (!structure || state->upgrades[WORLD_UPGRADE_ENERGY_CONSERVATION_1] != 0)
+      {
+        // Deadlock, skip.
+        completed = 1;
+      }
+      else if (structure->state == STRUCTURE_STATE_NORMAL && state->gas >= 300)
+      {
+        state->gas -= 300;
+        structure->state = STRUCTURE_STATE_WORKING;
+        state->upgrades[WORLD_UPGRADE_ENERGY_CONSERVATION_1] = 1;
+        create_event(state, 30000000ULL, EVENT_TYPE_UPGRADE_COMPLETE, structure, build_action);
+        completed = 1;
+      }
+      break;
+    case BUILD_ACTION_UPGRADE_ENERGY_CONSERVATION_2:
+      structure = find_structure(state, STRUCTURE_TYPE_ARMORY);
+      if (!structure || state->upgrades[WORLD_UPGRADE_ENERGY_CONSERVATION_2] != 0 || state->upgrades[WORLD_UPGRADE_ENERGY_CONSERVATION_1] == 0 || state->upgrades[WORLD_UPGRADE_LEVEL_2_WEAPONS] == 0)
+      {
+        // Deadlock, skip.
+        completed = 1;
+      }
+      else if (structure->state == STRUCTURE_STATE_NORMAL && state->upgrades[WORLD_UPGRADE_ENERGY_CONSERVATION_1] == 2 && state->upgrades[WORLD_UPGRADE_LEVEL_2_WEAPONS] == 2 && state->gas >= 450)
+      {
+        state->gas -= 450;
+        structure->state = STRUCTURE_STATE_WORKING;
+        state->upgrades[WORLD_UPGRADE_ENERGY_CONSERVATION_2] = 1;
+        create_event(state, 30000000ULL, EVENT_TYPE_UPGRADE_COMPLETE, structure, build_action);
+        completed = 1;
+      }
+      break;
+    case BUILD_ACTION_UPGRADE_ENERGY_CONSERVATION_3:
+      structure = find_structure(state, STRUCTURE_TYPE_ARMORY);
+      if (!structure || state->upgrades[WORLD_UPGRADE_ENERGY_CONSERVATION_3] != 0 || state->upgrades[WORLD_UPGRADE_ENERGY_CONSERVATION_2] == 0 || state->upgrades[WORLD_UPGRADE_LEVEL_3_WEAPONS] == 0)
+      {
+        // Deadlock, skip.
+        completed = 1;
+      }
+      else if (structure->state == STRUCTURE_STATE_NORMAL && state->upgrades[WORLD_UPGRADE_ENERGY_CONSERVATION_2] == 2 && state->upgrades[WORLD_UPGRADE_LEVEL_3_WEAPONS] == 2 && state->gas >= 750)
+      {
+        state->gas -= 750;
+        structure->state = STRUCTURE_STATE_WORKING;
+        state->upgrades[WORLD_UPGRADE_ENERGY_CONSERVATION_3] = 1;
+        create_event(state, 30000000ULL, EVENT_TYPE_UPGRADE_COMPLETE, structure, build_action);
+        completed = 1;
+      }
+      break;
+    case BUILD_ACTION_UPGRADE_SHATTERING_LASER:
+      structure = find_structure(state, STRUCTURE_TYPE_ARMORY);
+      if (!structure || state->upgrades[WORLD_UPGRADE_SHATTERING_LASER] != 0)
+      {
+        // Deadlock, skip.
+        completed = 1;
+      }
+      else if (structure->state == STRUCTURE_STATE_NORMAL && state->gas >= 200)
+      {
+        state->gas -= 200;
+        structure->state = STRUCTURE_STATE_WORKING;
+        state->upgrades[WORLD_UPGRADE_SHATTERING_LASER] = 1;
+        create_event(state, 30000000ULL, EVENT_TYPE_UPGRADE_COMPLETE, structure, build_action);
+        completed = 1;
+      }
+      break;
+    case BUILD_ACTION_UPGRADE_DEFLECTIVE_SHATTER:
+      structure = find_structure(state, STRUCTURE_TYPE_ARMORY);
+      if (!structure || state->upgrades[WORLD_UPGRADE_DEFLECTIVE_SHATTER] != 0 || state->upgrades[WORLD_UPGRADE_SHATTERING_LASER] == 0)
+      {
+        // Deadlock, skip.
+        completed = 1;
+      }
+      else if (structure->state == STRUCTURE_STATE_NORMAL && state->upgrades[WORLD_UPGRADE_SHATTERING_LASER] == 2 && state->gas >= 600)
+      {
+        state->gas -= 600;
+        structure->state = STRUCTURE_STATE_WORKING;
+        state->upgrades[WORLD_UPGRADE_DEFLECTIVE_SHATTER] = 1;
+        create_event(state, 30000000ULL, EVENT_TYPE_UPGRADE_COMPLETE, structure, build_action);
+        completed = 1;
+      }
+      break;
+    case BUILD_ACTION_UPGRADE_PENETRATING_LASER:
+      structure = find_structure(state, STRUCTURE_TYPE_ARMORY);
+      if (!structure || state->upgrades[WORLD_UPGRADE_PENETRATING_LASER] != 0)
+      {
+        // Deadlock, skip.
+        completed = 1;
+      }
+      else if (structure->state == STRUCTURE_STATE_NORMAL && state->gas >= 250)
+      {
+        state->gas -= 250;
+        structure->state = STRUCTURE_STATE_WORKING;
+        state->upgrades[WORLD_UPGRADE_PENETRATING_LASER] = 1;
+        create_event(state, 30000000ULL, EVENT_TYPE_UPGRADE_COMPLETE, structure, build_action);
+        completed = 1;
+      }
+      break;
+    case BUILD_ACTION_UPGRADE_ELITE_SCOPE:
+      structure = find_structure(state, STRUCTURE_TYPE_ARMORY);
+      if (!structure || state->upgrades[WORLD_UPGRADE_ELITE_SCOPE] != 0 || state->upgrades[WORLD_UPGRADE_LEVEL_3_WEAPONS] == 0)
+      {
+        // Deadlock, skip.
+        completed = 1;
+      }
+      else if (structure->state == STRUCTURE_STATE_NORMAL && state->upgrades[WORLD_UPGRADE_LEVEL_3_WEAPONS] == 2 && state->gas >= 700)
+      {
+        state->gas -= 700;
+        structure->state = STRUCTURE_STATE_WORKING;
+        state->upgrades[WORLD_UPGRADE_ELITE_SCOPE] = 1;
+        create_event(state, 30000000ULL, EVENT_TYPE_UPGRADE_COMPLETE, structure, build_action);
+        completed = 1;
+      }
+      break;
+    case BUILD_ACTION_CHARGE_TECH_LAB:
+      if (state->upgrades[WORLD_UPGRADE_TECH_LAB] == 0 || state->tech_lab_charges >= 40)
+      {
+        completed = 1;
+      }
+      else if (state->upgrades[WORLD_UPGRADE_TECH_LAB] == 2 && state->generator_charge >= 1000)
+      {
+        state->generator_charge -= 1000;
+        state->tech_lab_charges += 1;
+        completed = 1;
+        break;
+      }
+      break;
+    case BUILD_ACTION_AUTO_CHARGE_TECH_LAB_ON:
+      if (state->upgrades[WORLD_UPGRADE_TECH_LAB] == 0)
+      {
+        completed = 1;
+      }
+      else if (state->upgrades[WORLD_UPGRADE_TECH_LAB] == 2)
+      {
+        /* Get Tech Lab */
+        structure = find_structure(state, STRUCTURE_TYPE_TECH_LAB);
+        /* Check for Auto Poll */
+        barracks_event = structure->first_event;
+        while (barracks_event)
+        {
+          if (barracks_event->event_type == EVENT_TYPE_AUTO_BUILD_POLL)
+          {
+            break;
+          }
+          barracks_event = barracks_event->next_event_in_time;
+        }
+        if (!barracks_event)
+        {
+          barracks_event = create_event(state, 1000000, EVENT_TYPE_AUTO_BUILD_POLL, structure, build_action);
+        }
+        completed = 1;
+      }
+      break;
+    case BUILD_ACTION_AUTO_CHARGE_TECH_LAB_OFF:
+      if (state->upgrades[WORLD_UPGRADE_TECH_LAB] == 0)
+      {
+        completed = 1;
+      }
+      else if (state->upgrades[WORLD_UPGRADE_TECH_LAB] == 2)
+      {
+        /* Get Tech Lab */
+        structure = find_structure(state, STRUCTURE_TYPE_TECH_LAB);
+        /* Check for Auto Poll */
+        barracks_event = structure->first_event;
+        while (barracks_event)
+        {
+          if (barracks_event->event_type == EVENT_TYPE_AUTO_BUILD_POLL)
+          {
+            break;
+          }
+          barracks_event = barracks_event->next_event_in_time;
+        }
+        if (barracks_event)
+        {
+          delete_event(state, barracks_event);
+        }
+        completed = 1;
+      }
+      break;
+    case BUILD_ACTION_BUILD_ITALIS:
+      if (state->upgrades[WORLD_UPGRADE_LEVEL_2_WEAPONS] == 0)
+      {
+        // Deadlock, skip
+        completed = 1;
+      }
+      else if (state->upgrades[WORLD_UPGRADE_LEVEL_2_WEAPONS] == 2 && state->tech_lab_charges >= 25)
+      {
+        state->tech_lab_charges -= 25;
+        state->italis_count += 1;
+        completed = 1;
+      }
+      break;
+    case BUILD_ACTION_ION_CANNON:
+      if (state->upgrades[WORLD_UPGRADE_TECH_LAB] == 0)
+      {
+        // Deadlock, skip
+        completed = 1;
+      }
+      else if (state->upgrades[WORLD_UPGRADE_TECH_LAB] == 2 && state->tech_lab_charges >= 40 && state->minerals >= 1000 && state->gas >= 500)
+      {
+        state->minerals -= 1000;
+        state->gas -= 500;
+        state->tech_lab_charges -= 40;
+        state->ion_cannon_count += 1;
+        completed = 1;
+      }
+      break;
+    default:
+      completed = 1;
+      break;
+  }
+  return completed;
+}
+
+void sim_for_time(struct GAMESTATE_T * state, enum BUILD_ACTION_T * build_action, long end_time_us)
+{
+  while (state->time_us <= end_time_us)
+  {
+    struct EVENT_T * event = state->next_event;
+    if (!event)
+    {
+      state->time_us = end_time_us;
+      return;
+    }
+    state->time_us = event->time_us;
+    
+    unschedule_event(state, event);
+    
+    
+    if (event->structure)
+    {
+      
+      // Command Center
+       
+      if (event->structure->type == STRUCTURE_TYPE_COMMAND_CENTER)
+      {
+        if (event->event_type == EVENT_TYPE_BUILD_COMPLETE)
+        {
+          event->structure->state = STRUCTURE_STATE_NORMAL;
+          delete_event(state, event);
+          create_event(state, 5000000ULL, EVENT_TYPE_MINERAL_INCOME, event->structure, 0);
+          create_event(state, 1000000ULL, EVENT_TYPE_GAS_INCOME, event->structure, 0);
+        }
+        else if (event->event_type == EVENT_TYPE_GAS_INCOME)
+        {
+          state->gas += 1;
+          schedule_event(state, event);
+        }
+        else if (event->event_type == EVENT_TYPE_MINERAL_INCOME)
+        {
+          state->minerals += 1;
+          schedule_event(state, event);
+        }
+        else
+        {
+          delete_event(state, event);
+        }
+      }
+      
+      // Refinery
+      
+      else if (event->structure->type == STRUCTURE_TYPE_REFINERY)
+      {
+        if (event->event_type == EVENT_TYPE_BUILD_COMPLETE)
+        {
+          state->free_scv_count += 1;
+          event->structure->state = STRUCTURE_STATE_NORMAL;
+          create_event(state, 3000000ULL, EVENT_TYPE_GAS_INCOME, event->structure, 0);
+          delete_event(state, event);
+        }
+        else if (event->event_type == EVENT_TYPE_UPGRADE_COMPLETE)
+        {
+          event->structure->upgrades[STRUCTURE_UPGRADE_LEVEL] = 1;
+          event->structure->state = STRUCTURE_STATE_NORMAL;
+          delete_event(state, event);
+        }
+        else if (event->event_type == EVENT_TYPE_GAS_INCOME)
+        {
+          if (event->structure->state == STRUCTURE_STATE_NORMAL)
+          {
+            if (event->structure->upgrades[STRUCTURE_UPGRADE_LEVEL])
+            {
+              state->gas += 2;
+            }
+            else
+            {
+              state->gas += 1;
+            }
+          }
+          schedule_event(state, event);
+        }
+        else
+        {
+          delete_event(state, event);
+        }
+      }
+
+      // Fruit farm
+      
+      else if (event->structure->type == STRUCTURE_TYPE_FRUIT_FARM)
+      {
+        
+        if (event->event_type == EVENT_TYPE_BUILD_COMPLETE)
+        {
+          state->free_scv_count += 1;
+          state->free_animal_slot_count += 3;
+          event->structure->state = STRUCTURE_STATE_NORMAL;
+          create_event(state, 6000000ULL, EVENT_TYPE_MINERAL_INCOME, event->structure, 0);
+          delete_event(state, event);
+        }
+        else if (event->event_type == EVENT_TYPE_MINERAL_INCOME)
+        {
+          state->minerals += 1;
+          schedule_event(state, event);
+        }
+        else
+        {
+          delete_event(state, event);
+        }
+      }
+      
+      
+      
+      // Construction Yard
+      else if (event->structure->type == STRUCTURE_TYPE_CONSTRUCTION_YARD)
+      {
+        if (event->event_type == EVENT_TYPE_BUILD_COMPLETE)
+        {
+          state->free_scv_count += 1;
+          event->structure->state = STRUCTURE_STATE_NORMAL;
+          state->upgrades[WORLD_UPGRADE_ANY_TECH_STRUCTURE] = 2;
+          state->upgrades[WORLD_UPGRADE_CONSTRUCTION_YARD] = 2;
+        }
+        else if (event->event_type == EVENT_TYPE_UPGRADE_COMPLETE)
+        {
+          event->structure->state = STRUCTURE_STATE_NORMAL;
+          if (event->action == BUILD_ACTION_UPGRADE_ADVANCED_BUILD)
+            state->upgrades[WORLD_UPGRADE_ADVANCED_BUILD] = 2;
+          else if (event->action == BUILD_ACTION_UPGRADE_CHEMICAL_PLANT)
+            state->upgrades[WORLD_UPGRADE_CHEMICAL_PLANT] = 2;
+          else if (event->action == BUILD_ACTION_UPGRADE_IMPROVED_FARMING)
+            state->upgrades[WORLD_UPGRADE_IMPROVED_FARMING] = 2;
+        }
+        delete_event(state, event);
+      }
+      
+      // Tech Lab
+      else if (event->structure->type == STRUCTURE_TYPE_TECH_LAB)
+      {
+        if (event->event_type == EVENT_TYPE_BUILD_COMPLETE)
+        {
+          state->free_scv_count += 1;
+          event->structure->state = STRUCTURE_STATE_NORMAL;
+          state->upgrades[WORLD_UPGRADE_ANY_TECH_STRUCTURE] = 2;
+          state->upgrades[WORLD_UPGRADE_TECH_LAB] = 2;
+          delete_event(state, event);
+        }
+        else if (event->event_type == EVENT_TYPE_UPGRADE_COMPLETE)
+        {
+          event->structure->state = STRUCTURE_STATE_NORMAL;
+          if (event->action == BUILD_ACTION_UPGRADE_LEVEL_2_WEAPONS)
+            state->upgrades[WORLD_UPGRADE_LEVEL_2_WEAPONS] = 2;
+          else if (event->action == BUILD_ACTION_UPGRADE_LEVEL_3_WEAPONS)
+            state->upgrades[WORLD_UPGRADE_LEVEL_3_WEAPONS] = 2;
+          delete_event(state, event);
+        }
+        else if (event->event_type == EVENT_TYPE_AUTO_BUILD_POLL)
+        {
+          try_process_action(state, BUILD_ACTION_CHARGE_TECH_LAB);
+          schedule_event(state, event);
+        }
+        
+      }
+      
+      // Armory
+      else if (event->structure->type == STRUCTURE_TYPE_ARMORY)
+      {
+        if (event->event_type == EVENT_TYPE_BUILD_COMPLETE)
+        {
+          state->free_scv_count += 1;
+          event->structure->state = STRUCTURE_STATE_NORMAL;
+          state->upgrades[WORLD_UPGRADE_ANY_TECH_STRUCTURE] = 2;
+          state->upgrades[WORLD_UPGRADE_ARMORY] = 2;
+        }
+        else if (event->event_type == EVENT_TYPE_UPGRADE_COMPLETE)
+        {
+          event->structure->state = STRUCTURE_STATE_NORMAL;
+          if (event->action == BUILD_ACTION_UPGRADE_OVERCHARGE)
+            state->upgrades[WORLD_UPGRADE_OVERCHARGE] = 2;
+          else if (event->action == BUILD_ACTION_UPGRADE_ENERGY_CONSERVATION_1)
+            state->upgrades[WORLD_UPGRADE_ENERGY_CONSERVATION_1] = 2;
+          else if (event->action == BUILD_ACTION_UPGRADE_ENERGY_CONSERVATION_2)
+            state->upgrades[WORLD_UPGRADE_ENERGY_CONSERVATION_2] = 2;
+          else if (event->action == BUILD_ACTION_UPGRADE_ENERGY_CONSERVATION_3)
+            state->upgrades[WORLD_UPGRADE_ENERGY_CONSERVATION_3] = 2;
+          else if (event->action == BUILD_ACTION_UPGRADE_PENETRATING_LASER)
+            state->upgrades[WORLD_UPGRADE_PENETRATING_LASER] = 2;
+          else if (event->action == BUILD_ACTION_UPGRADE_SHATTERING_LASER)
+            state->upgrades[WORLD_UPGRADE_SHATTERING_LASER] = 2;
+          else if (event->action == BUILD_ACTION_UPGRADE_DEFLECTIVE_SHATTER)
+            state->upgrades[WORLD_UPGRADE_DEFLECTIVE_SHATTER] = 2;
+          else if (event->action == BUILD_ACTION_UPGRADE_ELITE_SCOPE)
+            state->upgrades[WORLD_UPGRADE_ELITE_SCOPE] = 2;
+        }
+        delete_event(state, event);
+      }
+      
+      
+      // Cow Farm
+      else if (event->structure->type == STRUCTURE_TYPE_COW_FARM)
+      {
+        if (event->event_type == EVENT_TYPE_BUILD_COMPLETE)
+        {
+          state->free_scv_count += 1;
+          event->structure->state = STRUCTURE_STATE_NORMAL;
+          create_event(state, 10000000ULL, EVENT_TYPE_MINERAL_INCOME, event->structure, 0);
+          
+
+          if (event->action == BUILD_ACTION_BUILD_COW_FARM_AND_COW)
+          {
+            if (!try_process_action(state, BUILD_ACTION_BUILD_COW))
+            {
+              create_event(state, 1000000ULL, EVENT_TYPE_AUTO_BUILD_POLL, event->structure, event->action);
+            }
+          }
+          
+          delete_event(state, event);
+        }
+        else if (event->event_type == EVENT_TYPE_AUTO_BUILD_POLL)
+        {
+          if (try_process_action(state, BUILD_ACTION_BUILD_COW))
+          {
+            delete_event(state, event);
+          }
+          else
+          {
+            schedule_event(state, event);
+          }
+        }
+        else if (event->event_type == EVENT_TYPE_MINERAL_INCOME)
+        {
+          state->minerals += 2;
+          schedule_event(state, event);
+        }
+        else
+        {
+          delete_event(state, event);
+        }
+      }
+      
+      // Sheep Farm
+      else if (event->structure->type == STRUCTURE_TYPE_SHEEP_FARM)
+      {
+        if (event->event_type == EVENT_TYPE_BUILD_COMPLETE)
+        {
+          state->free_scv_count += 1;
+          event->structure->state = STRUCTURE_STATE_NORMAL;
+          create_event(state, 10000000ULL, EVENT_TYPE_MINERAL_INCOME, event->structure, 0);
+          
+          if (event->action == BUILD_ACTION_BUILD_SHEEP_FARM_AND_SHEEP)
+          {
+            create_event(state, 1000000ULL, EVENT_TYPE_AUTO_BUILD_POLL, event->structure, event->action);
+          }
+          
+          delete_event(state, event);
+        }
+        else if (event->event_type == EVENT_TYPE_AUTO_BUILD_POLL)
+        {
+          if (try_process_action(state, BUILD_ACTION_BUILD_SHEEP))
+          {
+            delete_event(state, event);
+          }
+          else
+          {
+            schedule_event(state, event);
+          }
+        }
+        else if (event->event_type == EVENT_TYPE_UPGRADE_COMPLETE)
+        {
+          event->structure->state = STRUCTURE_STATE_NORMAL;
+          event->structure->upgrades[STRUCTURE_UPGRADE_LEVEL] = 1;
+          delete_event(state, event);
+        }
+        else if (event->event_type == EVENT_TYPE_MINERAL_INCOME)
+        {
+          if (event->structure->upgrades[STRUCTURE_UPGRADE_LEVEL])
+          {
+            state->minerals += 2;
+          }
+          else
+          {
+            state->minerals += 1;
+          }
+          schedule_event(state, event);
+        }
+        else
+        {
+          delete_event(state, event);
+        }
+      }
+
+      // Chemical Plant
+      else if (event->structure->type == STRUCTURE_TYPE_CHEMICAL_PLANT)
+      {
+        
+        if (event->event_type == EVENT_TYPE_BUILD_COMPLETE)
+        {
+          state->free_scv_count += 1;
+          event->structure->state = STRUCTURE_STATE_NORMAL;
+          delete_event(state, event);
+          create_event(state, 5000000ULL, EVENT_TYPE_GAS_INCOME, event->structure, 0);
+        }
+        else if (event->event_type == EVENT_TYPE_GAS_INCOME)
+        {
+          state->gas += 10;
+          schedule_event(state, event);
+        }
+        else
+        {
+          delete_event(state, event);
+        }
+      }
+      
+      // Cow
+      else if (event->structure->type == STRUCTURE_TYPE_COW)
+      {
+        if (event->event_type == EVENT_TYPE_BUILD_COMPLETE)
+        {
+          // Poll for available slot by restarting build event
+          if (state->free_animal_slot_count > 0)
+          {
+            state->free_animal_slot_count -= 1;
+            event->structure->state = STRUCTURE_STATE_NORMAL;
+            create_event(state, 18000000ULL, EVENT_TYPE_MINERAL_INCOME, event->structure, 0);
+            delete_event(state, event);
+          }
+          else
+          {
+            schedule_event(state, event);
+          }
+        }
+        else if (event->event_type == EVENT_TYPE_MINERAL_INCOME)
+        {
+          if (state->upgrades[WORLD_UPGRADE_IMPROVED_FARMING] == 2)
+            state->minerals += 4;
+          else
+            state->minerals += 3;
+          schedule_event(state, event);
+        }
+        else
+        {
+          delete_event(state, event);
+        }
+      }
+
+      // Sheep
+      else if (event->structure->type == STRUCTURE_TYPE_SHEEP)
+      {
+        if (event->event_type == EVENT_TYPE_BUILD_COMPLETE)
+        {
+          // Poll for available slot by restarting build event
+          if (state->free_animal_slot_count > 0)
+          {
+            state->free_animal_slot_count -= 1;
+            event->structure->state = STRUCTURE_STATE_NORMAL;
+            create_event(state, 18000000ULL, EVENT_TYPE_MINERAL_INCOME, event->structure, 0);
+            delete_event(state, event);
+          }
+          else
+          {
+            schedule_event(state, event);
+          }
+        }
+        else if (event->event_type == EVENT_TYPE_MINERAL_INCOME)
+        {
+          if (state->upgrades[WORLD_UPGRADE_IMPROVED_FARMING] == 2)
+            state->minerals += 2;
+          else
+            state->minerals += 1;
+          schedule_event(state, event);
+        }
+        else
+        {
+          delete_event(state, event);
+        }
+      }
+      
+      // Generator
+      else if (event->structure->type == STRUCTURE_TYPE_GENERATOR)
+      {
+        if (event->event_type == EVENT_TYPE_BUILD_COMPLETE)
+        {
+          event->structure->state = STRUCTURE_STATE_NORMAL;
+          create_event(state, 5000000ULL, EVENT_TYPE_ENERGY_INCOME, event->structure, 0);
+          delete_event(state, event);
+        }
+        else if (event->event_type == EVENT_TYPE_ENERGY_INCOME)
+        {
+          state->generator_charge += 5*(7+3*event->structure->upgrades[STRUCTURE_UPGRADE_LEVEL]);
+          if (state->generator_charge > 5000)
+            state->generator_charge = 5000;
+          schedule_event(state, event);
+        }
+        else if (event->event_type == EVENT_TYPE_UPGRADE_COMPLETE)
+        {
+          event->structure->state = STRUCTURE_STATE_NORMAL;
+          event->structure->upgrades[STRUCTURE_UPGRADE_LEVEL] += 1;
+          delete_event(state, event);
+        }
+        else if (event->event_type == EVENT_TYPE_AUTO_BUILD_POLL)
+        {
+          try_process_action(state, BUILD_ACTION_UPGRADE_GENERATOR);
+          if (event->structure->upgrades[STRUCTURE_UPGRADE_LEVEL] >= 50)
+          {
+            delete_event(state, event);
+          }
+          else
+          {
+            schedule_event(state, event);
+          }
+        }
+        else
+        {
+          delete_event(state, event);
+        }
+      }
+      
+
+      // Converter
+      else if (event->structure->type == STRUCTURE_TYPE_CONVERTER)
+      {        
+        if (event->event_type == EVENT_TYPE_BUILD_COMPLETE)
+        {
+          state->free_scv_count++;
+          event->structure->state = STRUCTURE_STATE_CONVERT_TO_GAS;
+          create_event(state, 5000000ULL, EVENT_TYPE_ENERGY_INCOME, event->structure, 0);
+          delete_event(state, event);
+        }
+        else if (event->event_type == EVENT_TYPE_ENERGY_INCOME)
+        {
+          if (event->structure->state == STRUCTURE_STATE_CONVERT_TO_GAS)
+          {
+            if (state->minerals >= 4)
+            {
+              state->gas += 2;
+              state->minerals -= 4;
+            }
+          }
+          else if (event->structure->state == STRUCTURE_STATE_CONVERT_TO_MINERALS)
+          {
+            if (state->gas >= 4)
+            {
+              state->minerals += 2;
+              state->gas -= 4;
+            }
+          }
+          schedule_event(state, event);
+        }
+        else
+        {
+          delete_event(state, event);
+        }
+      }
+      
+      // Barracks
+      else if (event->structure->type == STRUCTURE_TYPE_BARRACKS)
+      {
+        if (event->event_type == EVENT_TYPE_BUILD_COMPLETE)
+        {
+          event->structure->state = STRUCTURE_STATE_NORMAL;
+          delete_event(state, event);
+        }
+        else if (event->event_type == EVENT_TYPE_UNIT_BUILD_COMPLETE)
+        {
+          switch(event->action)
+          {
+            case BUILD_ACTION_BUILD_REAPER:
+              state->reaper_count += 1;
+              break;
+            case BUILD_ACTION_BUILD_SHOCK_TROOPER:
+              state->shock_trooper_count += 1;
+              state->shock_troopers_off_cooldown += 1;
+              break;
+            case BUILD_ACTION_BUILD_MARINE:
+              state->marine_count += 1;
+              break;
+            case BUILD_ACTION_BUILD_VETERAN_MARINE:
+              state->veteran_marine_count += 1;
+              break;
+            case BUILD_ACTION_BUILD_ELITE_MARINE:
+              state->elite_marine_count += 1;
+              break;
+            default:
+              break;
+          }
+          event->structure->state = STRUCTURE_STATE_NORMAL;
+          delete_event(state, event);
+        }
+        else if (event->event_type == EVENT_TYPE_AUTO_BUILD_POLL)
+        {
+          enum BUILD_ACTION_T simulated_action;
+          switch(event->action)
+          {
+            case BUILD_ACTION_AUTO_BUILD_REAPER:
+              simulated_action = BUILD_ACTION_BUILD_REAPER;
+              break;
+            case BUILD_ACTION_AUTO_BUILD_SHOCK_TROOPER:
+              simulated_action = BUILD_ACTION_BUILD_SHOCK_TROOPER;
+              break;
+            case BUILD_ACTION_AUTO_BUILD_MARINE:
+              simulated_action = BUILD_ACTION_BUILD_MARINE;
+              break;
+            case BUILD_ACTION_AUTO_BUILD_VETERAN_MARINE:
+              simulated_action = BUILD_ACTION_BUILD_VETERAN_MARINE;
+              break;
+            case BUILD_ACTION_AUTO_BUILD_ELITE_MARINE:
+            default:
+              simulated_action = BUILD_ACTION_BUILD_ELITE_MARINE;
+              break;
+          }
+          try_process_action(state, simulated_action);
+          schedule_event(state, event);
+        }
+        else
+        {
+          delete_event(state, event);
+        }
+      }
+    }
+    
+    // Abilities
+    else if (event->action == BUILD_ACTION_SHOCK_TROOPER_BOLT)
+    {
+      state->shock_troopers_off_cooldown += 1;
+      delete_event(state, event);
+    }
+    else
+    {
+      delete_event(state, event);
+    }
+    
+    
+    
+    /* Try to execute next command */
+    if (build_action && *build_action != BUILD_ACTION_END_BUILD)
+    {
+      if (try_process_action(state, *build_action))
+      {
+        build_action++;
+      }
+    }
+  }
+}
+
+
+void clean_gamestate(struct GAMESTATE_T * state)
+{
+  /* Free all events */
+  struct EVENT_T * to_free;
+  struct EVENT_T * next_event;
+  next_event = state->next_event;
+  while (next_event)
+  {
+    to_free = next_event;
+    next_event = next_event->next_event_in_time;
+    free(to_free);
+  }
+  
+  /* Free all structures */
+  struct STRUCTURE_T * to_free_s;
+  struct STRUCTURE_T * next_struct;
+  next_struct = state->first_structure;
+  while (next_struct)
+  {
+    to_free_s = next_struct;
+    next_struct = next_struct->next;
+    free(to_free_s);
+  }
+}
+
+float estimate_burst_dps(struct GAMESTATE_T * state)
+{
+  // Burst dps
+  float burst_dps = 0;
+  float shattering_laser_factor = 1;
+  if (state->upgrades[WORLD_UPGRADE_SHATTERING_LASER] == 2)
+    shattering_laser_factor = 5.0/3.0;
+  if (state->upgrades[WORLD_UPGRADE_DEFLECTIVE_SHATTER] == 2)
+    shattering_laser_factor = 3.0;
+  
+  float penetrating_laser_factor = 0;
+  if (state->upgrades[WORLD_UPGRADE_PENETRATING_LASER] == 2)
+    penetrating_laser_factor = 1;
+
+  float elite_scope_factor = 0;
+  if (state->upgrades[WORLD_UPGRADE_ELITE_SCOPE] == 2)
+    elite_scope_factor = 1;
+  
+  float overcharge_factor = 1;
+  if (state->upgrades[WORLD_UPGRADE_OVERCHARGE] == 2)
+    overcharge_factor = 0.5;
+  
+  burst_dps += state->marine_count * (3.0 + penetrating_laser_factor)*shattering_laser_factor/(0.4*overcharge_factor);
+  burst_dps += state->reaper_count * 6.0/1.05;
+  burst_dps += state->shock_trooper_count * 4/1.0;
+  burst_dps += state->veteran_marine_count * (6.0 + penetrating_laser_factor)*shattering_laser_factor/(0.4*overcharge_factor);
+  burst_dps += state->elite_marine_count * (11.0 + penetrating_laser_factor + elite_scope_factor)*shattering_laser_factor/(0.4*overcharge_factor);
+  return burst_dps;
+}
+
+float estimate_hp(struct GAMESTATE_T * state)
+{
+  float hp = 0;
+  
+  hp += state->marine_count * 45;
+  hp += state->reaper_count * 28;
+  hp += state->shock_trooper_count * 55;
+  hp += state->veteran_marine_count * 85;
+  hp += state->elite_marine_count * 140;
+  return hp;
+}
+
+
+float estimate_sustained_dps(struct GAMESTATE_T * state)
+{
+  // Get energy income
+  struct STRUCTURE_T * generator = find_structure(state, STRUCTURE_TYPE_GENERATOR);
+  float energy_per_sec = (7+3*generator->upgrades[STRUCTURE_UPGRADE_LEVEL]);
+  
+  float dps = 0;
+  float unit_consuming_energy_per_sec;
+  
+  float shattering_laser_factor = 1;
+  if (state->upgrades[WORLD_UPGRADE_SHATTERING_LASER] == 2)
+    shattering_laser_factor = 5.0/3.0;
+  if (state->upgrades[WORLD_UPGRADE_DEFLECTIVE_SHATTER] == 2)
+    shattering_laser_factor = 3.0;
+  
+  float penetrating_laser_factor = 0;
+  if (state->upgrades[WORLD_UPGRADE_PENETRATING_LASER] == 2)
+    penetrating_laser_factor = 1;
+
+  float elite_scope_factor = 0;
+  if (state->upgrades[WORLD_UPGRADE_ELITE_SCOPE] == 2)
+    elite_scope_factor = 1;
+  
+  int conservation_level = 0;
+  if (state->upgrades[WORLD_UPGRADE_ENERGY_CONSERVATION_1] == 2)
+    conservation_level = 1;
+  if (state->upgrades[WORLD_UPGRADE_ENERGY_CONSERVATION_2] == 2)
+    conservation_level = 2;
+  if (state->upgrades[WORLD_UPGRADE_ENERGY_CONSERVATION_3] == 2)
+    conservation_level = 3;
+  
+  float conservation_effect = 1;  
+  
+  switch (conservation_level)
+  {
+    case 1:
+      conservation_effect = 1.0;
+      break;
+    case 2:
+      conservation_effect = 1.25;
+      break;
+    case 3:
+      conservation_effect = 2.0;
+      break;
+  }
+  
+  // Elite marine
+  unit_consuming_energy_per_sec = (state->elite_marine_count * 3.0/0.4)/conservation_effect;
+  if (unit_consuming_energy_per_sec > energy_per_sec)
+    unit_consuming_energy_per_sec = energy_per_sec;
+  dps += (11.0 + penetrating_laser_factor + elite_scope_factor)*shattering_laser_factor/3.0 * unit_consuming_energy_per_sec * conservation_effect;
+  energy_per_sec -= unit_consuming_energy_per_sec;
+  
+  switch (conservation_level)
+  {
+    case 1:
+      conservation_effect = 1.25;
+      break;
+    case 2:
+      conservation_effect = 1.75;
+      break;
+    case 3:
+      conservation_effect = 2.0;
+      break;
+  }
+  
+  // Veteran marine
+  unit_consuming_energy_per_sec = (state->veteran_marine_count * 2.0/0.4)/conservation_effect;
+  if (unit_consuming_energy_per_sec > energy_per_sec)
+    unit_consuming_energy_per_sec = energy_per_sec;
+  dps += (6.0 + penetrating_laser_factor)*shattering_laser_factor/2.0 * unit_consuming_energy_per_sec * conservation_effect;
+  energy_per_sec -= unit_consuming_energy_per_sec;
+
+  switch (conservation_level)
+  {
+    case 1:
+      conservation_effect = 1.75;
+      break;
+    case 2:
+      conservation_effect = 2.0;
+      break;
+    case 3:
+      conservation_effect = 2.0;
+      break;
+  }
+
+  // Marine
+  unit_consuming_energy_per_sec = (state->marine_count * 1.0/0.4)/conservation_effect;
+  if (unit_consuming_energy_per_sec > energy_per_sec)
+    unit_consuming_energy_per_sec = energy_per_sec;
+  dps += (3.0 + penetrating_laser_factor)*shattering_laser_factor/1.0 * unit_consuming_energy_per_sec * conservation_effect;
+  energy_per_sec -= unit_consuming_energy_per_sec;
+
+  // Shock trooper
+  unit_consuming_energy_per_sec = state->shock_trooper_count * 2.0/1.0;
+  if (unit_consuming_energy_per_sec > energy_per_sec)
+    unit_consuming_energy_per_sec = energy_per_sec;
+  dps += 4.0/2.0 * unit_consuming_energy_per_sec;
+  energy_per_sec -= unit_consuming_energy_per_sec;
+
+  // Reaper
+  dps += state->reaper_count * 6.0/1.05;
+  
+  return dps;
+
+}
+
+void print_gamestate(struct GAMESTATE_T * state)
+{
+  printf("\nGAMESTATE\n");
+  printf("Gas: %d\n", state->gas);
+  printf("Minerals: %d\n", state->minerals);
+  printf("Refinery Spots Left: %d\n", state->refinery_spots_left);
+  printf("Large Spots Left: %d\n", state->large_spots_left);
+  printf("Small Spots Left: %d\n", state->small_spots_left);
+  printf("Free SCVs: %d\n", state->free_scv_count);
+  printf("Free Animal Slots: %d\n", state->free_animal_slot_count);
+  printf("Italis: %d\n", state->italis_count);
+  printf("Reapers: %d\n", state->reaper_count);
+  printf("Shock Troopers: %d\n", state->shock_trooper_count);
+  printf("Shock Trooper Bolts Fired: %d\n", state->shock_trooper_bolts_fired);
+  printf("Marines: %d\n", state->marine_count);
+  printf("Veteran Marines: %d\n", state->veteran_marine_count);
+  printf("Elite Marines: %d\n", state->elite_marine_count);
+  printf("Generator Charge: %d\n", state->generator_charge);
+  printf("Tech Lab Charges: %d\n", state->tech_lab_charges);
+  printf("Ion Cannons: %d\n", state->ion_cannon_count);
+  printf("Burst DPS: %f\n", estimate_burst_dps(state));
+  printf("Sustained DPS: %f\n", estimate_sustained_dps(state));
+  printf("Total HP: %f\n", estimate_hp(state));
+  int secs = state->time_us / 1000000ULL;
+  int mins = secs / 60;
+  secs = secs % 60;
+  printf("Time: %d:%02d\n", mins, secs);
+  /* Print Upgrades */
+  int i;
+  printf("\nUPGRADES:\n");
+  for (i = 0; i < WORLD_UPGRADE_NUM; i++)
+  {
+    if (state->upgrades[i] == 1)
+      printf("%s (Researching)\n", world_upgrade_strings[i]);
+    else if (state->upgrades[i] == 2)
+      printf("%s\n", world_upgrade_strings[i]);
+  }
+  /* Print Structures */
+  printf("\nSTRUCTURES:\n");
+  struct STRUCTURE_T * next_struct = state->first_structure;
+  while (next_struct)
+  {
+    print_structure(next_struct);
+    next_struct = next_struct->next;
+  }
+}
+
+// 40 min #define TIME_HORIZON 2400000000ULL
+#define TIME_HORIZON 30*60000000ULL
+#define BUILD_ORDER_MAX_LEN 100000
+#define SIMULATED_ANNEALING_ITERATIONS 10000000
+
+#define WANT_GAS 0
+#define WANT_MINERALS 0
+
+
+//#define CHEATER_BASE
+//#define CHEATER_BASE_2
+//#define OUTSIDE_BASE
+
+void init_gamestate(struct GAMESTATE_T * state)
+{
+  state->gas = 70;
+  state->minerals = 10;
+  state->free_scv_count = 2;
+  state->large_spots_left = 3;
+  state->small_spots_left = 21;
+  state->refinery_spots_left = 1;
+  state->free_animal_slot_count = 0;
+  state->time_us = 0;
+  
+#ifdef CHEATER_BASE
+  state->small_spots_left += 29;
+  state->large_spots_left += 4;
+#endif
+
+#ifdef CHEATER_BASE_2
+  state->small_spots_left += 29;
+  state->large_spots_left += 4;
+#endif
+
+#ifdef OUTSIDE_BASE
+  state->small_spots_left += 30;
+  state->large_spots_left += 5;
+  state->refinery_spots_left += 3;
+#endif  
+
+  state->small_spots_left += 9*state->large_spots_left;
+
+  state->reaper_count = 0;
+  state->shock_trooper_count = 0;
+  state->shock_troopers_off_cooldown = 0;
+  state->shock_trooper_bolts_fired = 0;
+  state->marine_count = 2;
+  state->veteran_marine_count = 0;
+  state->elite_marine_count = 0;
+  
+  state->generator_charge = 0;
+  state->tech_lab_charges = 0;
+  
+  state->italis_count = 0;
+  state->ion_cannon_count = 0;
+  
+  state->next_event = NULL;
+  state->first_structure = NULL;
+  
+  int i;
+  for (i = 0; i < WORLD_UPGRADE_NUM; i++)
+  {
+    state->upgrades[i] = 0;
+  }
+  
+  struct STRUCTURE_T * command = create_structure(state, STRUCTURE_TYPE_COMMAND_CENTER, STRUCTURE_STATE_BUILDING);
+  create_event(state, 0, EVENT_TYPE_BUILD_COMPLETE, command, 0);
+
+  struct STRUCTURE_T * generator = create_structure(state, STRUCTURE_TYPE_GENERATOR, STRUCTURE_STATE_BUILDING);
+  create_event(state, 0, EVENT_TYPE_BUILD_COMPLETE, generator, 0);
+
+  struct STRUCTURE_T * barracks = create_structure(state, STRUCTURE_TYPE_BARRACKS, STRUCTURE_STATE_BUILDING);
+  create_event(state, 0, EVENT_TYPE_BUILD_COMPLETE, barracks, 0);
+}
+
+long score_game(struct GAMESTATE_T * state, enum BUILD_ACTION_T * build_order)
+{
+  int build_score = 0;
+  int i;
+  enum BUILD_ACTION_T last_action = BUILD_ACTION_END_BUILD;
+  for (i = 0; i < BUILD_ORDER_MAX_LEN; i++)
+  {
+    build_score -= 2;
+    if (build_order[i] == BUILD_ACTION_END_BUILD)
+    {
+      break;
+    }
+    // Human Usability
+    if (build_order[i] != last_action)
+    {
+      build_score -= 5;
+      last_action = build_order[i];
+    }
+  }
+  
+  int struct_score = 0;
+  struct STRUCTURE_T * structure = state->first_structure;
+  while (structure)
+  {
+    if (structure->type == STRUCTURE_TYPE_CHEMICAL_PLANT)
+    {
+      //struct_score += 1000;
+    }
+    else if (structure->type == STRUCTURE_TYPE_CONSTRUCTION_YARD)
+    {
+      //struct_score += 1000;
+    }
+    else if (structure->type == STRUCTURE_TYPE_GENERATOR)
+    {
+      //struct_score += 100 * structure->upgrades[STRUCTURE_UPGRADE_LEVEL];
+    }
+    structure = structure->next;
+  }
+  
+  int research_score = 0;// state->chemical_plant * 1000;
+  
+  int gas_to_use = state->gas;
+  if (gas_to_use > WANT_GAS)
+    gas_to_use = WANT_GAS;
+    
+  int minerals_to_use = state->minerals;
+  if (minerals_to_use > WANT_MINERALS)
+    minerals_to_use = WANT_MINERALS;
+  
+  int wanted_score = gas_to_use*100 + minerals_to_use+50;
+  
+  // Also human usability
+  int friendly_score = -state->free_scv_count*100;
+  
+  int sustained_dps = estimate_sustained_dps(state);
+  int burst_dps = estimate_burst_dps(state);
+  float hp = estimate_hp(state);
+  
+  return state->minerals*1 + state->gas*1 + hp*0 + burst_dps*0 + sustained_dps*0 + state->reaper_count*0 +  state->italis_count*0 + state->tech_lab_charges*10 + state->ion_cannon_count*10000 + build_score + struct_score + research_score + wanted_score + friendly_score;
+}
+
+
+int best_score;
+
+void report_progress(enum BUILD_ACTION_T * build_order, int current_iteration, int total_iterations) {
+  struct GAMESTATE_T state;
+  // Score run
+  init_gamestate(&state);
+  sim_for_time(&state, build_order, TIME_HORIZON);
+  
+    
+   // Trivial fitness for now
+  int current_score = score_game(&state, build_order);
+  
+  printf("\e[1;1H\e[2J\n\n"); // Clear screen
+  print_build_order(build_order);
+  print_gamestate(&state);
+  printf("Current Score = %i \n", current_score);
+  printf("Best Score = %i \n", best_score);
+  printf("Iterations = %'i / %'i\n\n", current_iteration, total_iterations);
+  clean_gamestate(&state);
+}
+
+void do_simulated_annealing()
+{
+  struct GAMESTATE_T state;
+  
+  enum BUILD_ACTION_T buffer_a[BUILD_ORDER_MAX_LEN] = {BUILD_ACTION_END_BUILD};
+  enum BUILD_ACTION_T buffer_b[BUILD_ORDER_MAX_LEN];
+  
+  enum BUILD_ACTION_T * build_order = buffer_a;
+  enum BUILD_ACTION_T * build_order_backup = buffer_b;
+  
+  best_score = 0;
+  int score = 0;
+  
+  double last_update = getUnixTime();
+  
+  long max_iterations = SIMULATED_ANNEALING_ITERATIONS;
+  long total_iterations = 0;
+
+  long i;
+  int j;
+  for (i = 0; i < max_iterations; i++) {
+    // Make backup
+    for (j = 0; j < BUILD_ORDER_MAX_LEN; j++)
+    {
+      build_order_backup[j] = build_order[j];
+      if (build_order[j] == BUILD_ACTION_END_BUILD)
+        break;
+    }
+    
+    // Modify build order
+    int len = j;
+    int idx = fast_rand()%(len+1);
+    int inst = fast_rand()%4;
+    
+    /* Don't Overflow */
+    if (len == BUILD_ORDER_MAX_LEN-1)
+    {
+      inst = 1;
+      idx = BUILD_ORDER_MAX_LEN-2;
+    }
+    
+    if (inst == 0 && idx < len)
+    {
+      // Delete at idx
+      for (;idx < len; idx++)
+      {
+        build_order[idx] = build_order[idx + 1];
+      }
+    }
+    else if (inst == 1 && idx < len)
+    {
+      // Swap idx and idx+1
+      enum BUILD_ACTION_T swap;
+      swap = build_order[idx];
+      build_order[idx] = build_order[idx + 1];
+      build_order[idx + 1] = swap;
+    }
+    else if (inst == 2 && idx < len)
+    {
+      // Rewrite at idx
+
+      // Select action at random
+      build_order[idx] = fast_rand()%BUILD_ACTION_END_BUILD;
+    }
+    else
+    {
+      // Insert at idx
+      for (;len >= idx; len--)
+      {
+        build_order[len + 1] = build_order[len];
+      }
+      // Select action at random
+      build_order[idx] = fast_rand()%BUILD_ACTION_END_BUILD;
+    }
+
+    
+    // Check sanity
+    int k;
+    for (k = 0; k < BUILD_ORDER_MAX_LEN; k++)
+    {
+      if (build_order[k] == BUILD_ACTION_END_BUILD)
+        break;
+      if (build_order[k] > BUILD_ACTION_END_BUILD)
+        printf("INVALID OP!!!\n");
+      if (k == BUILD_ORDER_MAX_LEN-1)
+        printf("We have lost END_BUILD.\n");
+    }
+    
+    // Score run
+    init_gamestate(&state);
+    sim_for_time(&state, build_order, TIME_HORIZON);
+    clean_gamestate(&state);
+    
+    int new_score = score_game(&state, build_order);
+
+    // Simulated annealing to determine if this passes
+    int does_pass = 0;
+    if (new_score > score)
+      does_pass = 1;
+    else {
+      float p = exp(-(score - new_score)/(((float)(max_iterations - i)/(float)(max_iterations))*70));
+      does_pass = fast_rand() < 32767.0 * p;
+    }
+      
+    if (does_pass) {
+      if (new_score > best_score)
+        best_score = new_score;
+      // Keep the new code
+      score = new_score;
+      
+    }
+    else {
+      // Revert to the old code
+      enum BUILD_ACTION_T * swap;
+      swap = build_order;
+      build_order = build_order_backup;
+      build_order_backup = swap;
+    }
+    if ((!(i % 100) && getUnixTime()-last_update > 0.5)) {
+      last_update += 0.5;
+      report_progress(build_order, i, max_iterations);
+    }
+    total_iterations++;
+  }
+  
+  
+  report_progress(build_order, i, max_iterations);
+}
+
+//#define TEST
+
+int main()
+{
+#ifndef TEST
+  do_simulated_annealing();
+#else
+  struct GAMESTATE_T state;
+  enum BUILD_ACTION_T build_order[] =
+  {
+    BUILD_ACTION_BUILD_REFINERY,
+    BUILD_ACTION_BUILD_REFINERY,
+    BUILD_ACTION_BUILD_REFINERY,
+    BUILD_ACTION_BUILD_REFINERY,
+    BUILD_ACTION_BUILD_REFINERY,
+    BUILD_ACTION_BUILD_FRUIT_FARM,
+    BUILD_ACTION_BUILD_FRUIT_FARM,
+    BUILD_ACTION_BUILD_FRUIT_FARM,
+    BUILD_ACTION_BUILD_CONSTRUCTION_YARD,
+    BUILD_ACTION_BUILD_COW_FARM_AND_COW,
+    BUILD_ACTION_BUILD_COW_FARM,
+    BUILD_ACTION_BUILD_SHEEP_FARM_AND_SHEEP,
+    BUILD_ACTION_BUILD_SHEEP_FARM_AND_SHEEP,
+    BUILD_ACTION_BUILD_SHEEP_FARM_AND_SHEEP,
+    BUILD_ACTION_BUILD_SHEEP_FARM_AND_SHEEP,
+    BUILD_ACTION_BUILD_SHEEP_FARM_AND_SHEEP,
+    BUILD_ACTION_BUILD_SHEEP_FARM_AND_SHEEP,
+    BUILD_ACTION_BUILD_SHEEP_FARM_AND_SHEEP,
+    BUILD_ACTION_BUILD_SHEEP_FARM_AND_SHEEP,
+    BUILD_ACTION_BUILD_SHEEP_FARM_AND_SHEEP,
+    BUILD_ACTION_BUILD_SHEEP_FARM_AND_SHEEP,
+    BUILD_ACTION_BUILD_SHEEP_FARM_AND_SHEEP,
+    BUILD_ACTION_BUILD_SHEEP_FARM_AND_SHEEP,
+    BUILD_ACTION_BUILD_SHEEP_FARM_AND_SHEEP,
+    BUILD_ACTION_BUILD_SHEEP_FARM_AND_SHEEP,
+    BUILD_ACTION_BUILD_TECH_LAB,
+    BUILD_ACTION_UPGRADE_LEVEL_2_WEAPONS,
+    BUILD_ACTION_AUTO_UPGRADE_GENERATOR_ON,
+    BUILD_ACTION_AUTO_CHARGE_TECH_LAB_ON,
+    BUILD_ACTION_BUILD_SHEEP_FARM_AND_SHEEP,
+    BUILD_ACTION_BUILD_SHEEP_FARM_AND_SHEEP,
+    BUILD_ACTION_BUILD_SHEEP_FARM_AND_SHEEP,
+    BUILD_ACTION_BUILD_SHEEP_FARM_AND_SHEEP,
+    BUILD_ACTION_BUILD_SHEEP_FARM_AND_SHEEP,
+    BUILD_ACTION_BUILD_SHEEP_FARM_AND_SHEEP,
+    BUILD_ACTION_BUILD_SHEEP_FARM_AND_SHEEP,
+    BUILD_ACTION_BUILD_SHEEP_FARM_AND_SHEEP,
+    BUILD_ACTION_BUILD_SHEEP_FARM_AND_SHEEP,
+    BUILD_ACTION_AUTO_UPGRADE_GENERATOR_OFF,
+    BUILD_ACTION_BUILD_ITALIS,
+    BUILD_ACTION_BUILD_ITALIS,
+    BUILD_ACTION_ION_CANNON,
+
+    
+    BUILD_ACTION_END_BUILD,
+  };
+  init_gamestate(&state);
+  sim_for_time(&state, build_order, TIME_HORIZON);
+    
+  print_build_order(build_order);
+  print_gamestate(&state);
+
+  clean_gamestate(&state);
+#endif
+}
